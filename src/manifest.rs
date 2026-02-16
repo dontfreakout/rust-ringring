@@ -1,9 +1,9 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 pub struct Manifest {
     #[allow(dead_code)]
     pub name: String,
@@ -12,7 +12,7 @@ pub struct Manifest {
     pub categories: HashMap<String, Category>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 pub struct Category {
     #[serde(default)]
     pub title: Option<String>,
@@ -22,7 +22,7 @@ pub struct Category {
     pub sounds: Vec<Sound>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize)]
 pub struct Sound {
     pub file: String,
     #[serde(default)]
@@ -59,10 +59,11 @@ pub fn pick_sound(manifest: &Manifest, category: &str) -> Option<SoundPick> {
 
 /// Get category-level title and body from manifest.
 pub fn category_text(manifest: &Manifest, category: &str) -> (Option<String>, Option<String>) {
-    match manifest.categories.get(category) {
-        Some(cat) => (cat.title.clone(), cat.body.clone()),
-        None => (None, None),
-    }
+    let cat = manifest.categories.get(category);
+    (
+        cat.and_then(|c| c.title.clone()),
+        cat.and_then(|c| c.body.clone()),
+    )
 }
 
 #[cfg(test)]

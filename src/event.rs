@@ -23,92 +23,70 @@ pub struct EventAction {
     pub body: String,
     pub skip_notify: bool,
     /// For SessionStart: "startup", "resume", or other
+    #[allow(dead_code)]
     pub session_start_type: Option<String>,
+}
+
+impl EventAction {
+    fn new(category: &str, title: &str, body: &str) -> Self {
+        Self {
+            category: Some(category.into()),
+            title: title.into(),
+            body: body.into(),
+            skip_notify: false,
+            session_start_type: None,
+        }
+    }
+
+    fn silent(category: Option<&str>) -> Self {
+        Self {
+            category: category.map(Into::into),
+            title: String::new(),
+            body: String::new(),
+            skip_notify: true,
+            session_start_type: None,
+        }
+    }
 }
 
 pub fn map_event(input: &HookInput) -> EventAction {
     match input.hook_event_name.as_str() {
         "SessionStart" => {
             let source_type = input.source.as_deref().unwrap_or("unknown");
-            let session_start_type = Some(source_type.to_string());
-            match source_type {
-                "startup" | "resume" => EventAction {
-                    category: Some("greeting".to_string()),
-                    title: String::new(),
-                    body: String::new(),
-                    skip_notify: true,
-                    session_start_type,
-                },
-                _ => EventAction {
-                    category: None,
-                    title: String::new(),
-                    body: String::new(),
-                    skip_notify: true,
-                    session_start_type,
-                },
+            let category = match source_type {
+                "startup" | "resume" => Some("greeting"),
+                _ => None,
+            };
+            EventAction {
+                session_start_type: Some(source_type.into()),
+                ..EventAction::silent(category)
             }
         }
         "PermissionRequest" => EventAction {
-            category: Some("permission".to_string()),
-            title: "Potřebuju povolení".to_string(),
-            body: "Something need doing?".to_string(),
             skip_notify: true,
-            session_start_type: None,
+            ..EventAction::new("permission", "Potřebuju povolení", "Something need doing?")
         },
-        "Stop" => EventAction {
-            category: Some("complete".to_string()),
-            title: "Hotovo".to_string(),
-            body: "Okie dokie.".to_string(),
-            skip_notify: false,
-            session_start_type: None,
-        },
-        "Notification" => {
-            let nt = input.notification_type.as_deref().unwrap_or("unknown");
-            match nt {
-                "permission_prompt" => EventAction {
-                    category: Some("permission".to_string()),
-                    title: "Chtěl bych trochu pozornosti".to_string(),
-                    body: "Hmm?".to_string(),
-                    skip_notify: false,
-                    session_start_type: None,
-                },
-                "idle_prompt" => EventAction {
-                    category: Some("annoyed".to_string()),
-                    title: "Čekám na tebe".to_string(),
-                    body: "Nudím se, pojď makat.".to_string(),
-                    skip_notify: false,
-                    session_start_type: None,
-                },
-                "auth_success" => EventAction {
-                    category: Some("acknowledge".to_string()),
-                    title: "Přihlášení úspěšné".to_string(),
-                    body: "Be happy to.".to_string(),
-                    skip_notify: false,
-                    session_start_type: None,
-                },
-                "elicitation_dialog" => EventAction {
-                    category: Some("permission".to_string()),
-                    title: "Mám otázku".to_string(),
-                    body: "What you want?".to_string(),
-                    skip_notify: false,
-                    session_start_type: None,
-                },
-                _ => EventAction {
-                    category: Some("greeting".to_string()),
-                    title: "Chtěl bych trochu pozornosti".to_string(),
-                    body: "Yes?".to_string(),
-                    skip_notify: false,
-                    session_start_type: None,
-                },
-            }
+        "Stop" => EventAction::new("complete", "Hotovo", "Okie dokie."),
+        "Notification" => map_notification(input),
+        _ => EventAction::new("resource_limit", "Neznámá událost", "Why not?"),
+    }
+}
+
+fn map_notification(input: &HookInput) -> EventAction {
+    match input.notification_type.as_deref().unwrap_or("unknown") {
+        "permission_prompt" => {
+            EventAction::new("permission", "Chtěl bych trochu pozornosti", "Hmm?")
         }
-        _ => EventAction {
-            category: Some("resource_limit".to_string()),
-            title: "Neznámá událost".to_string(),
-            body: "Why not?".to_string(),
-            skip_notify: false,
-            session_start_type: None,
-        },
+        "idle_prompt" => {
+            EventAction::new("annoyed", "Čekám na tebe", "Nudím se, pojď makat.")
+        }
+        "auth_success" => {
+            EventAction::new("acknowledge", "Přihlášení úspěšné", "Be happy to.")
+        }
+        "elicitation_dialog" => {
+            EventAction::new("permission", "Mám otázku", "What you want?")
+        }
+        _ => EventAction::new("greeting", "Chtěl bych trochu pozornosti", "Yes?"),
     }
 }
 

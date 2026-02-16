@@ -58,12 +58,8 @@ impl<'a> ThemeResolver<'a> {
 
         // 3. Session cache
         if !self.session_id.is_empty() {
-            let session_file = self.session_theme_file();
-            if let Ok(cached) = fs::read_to_string(&session_file) {
-                let cached = cached.trim().to_string();
-                if !cached.is_empty() {
-                    return cached;
-                }
+            if let Some(cached) = self.read_non_empty(&self.session_theme_file()) {
+                return cached;
             }
         }
 
@@ -75,23 +71,26 @@ impl<'a> ThemeResolver<'a> {
         }
 
         // 4. Config theme
-        if let Some(ref theme) = self.config.theme {
+        if let Some(theme) = &self.config.theme {
             if !theme.is_empty() {
                 return theme.clone();
             }
         }
 
         // 5. Legacy theme file
-        let legacy = self.sounds_dir.join("theme");
-        if let Ok(content) = fs::read_to_string(&legacy) {
-            let trimmed = content.trim().to_string();
-            if !trimmed.is_empty() {
-                return trimmed;
-            }
+        if let Some(legacy) = self.read_non_empty(&self.sounds_dir.join("theme")) {
+            return legacy;
         }
 
         // 6. Fallback
         "peon".to_string()
+    }
+
+    /// Read a file and return its trimmed content if non-empty.
+    fn read_non_empty(&self, path: &Path) -> Option<String> {
+        let content = fs::read_to_string(path).ok()?;
+        let trimmed = content.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
     }
 
     pub fn session_theme_file(&self) -> PathBuf {
