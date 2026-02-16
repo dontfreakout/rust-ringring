@@ -23,7 +23,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let home = std::env::var("HOME")?;
     let sounds_dir = PathBuf::from(&home).join(".claude/sounds");
-    let icon_path = PathBuf::from(&home).join(".claude/clawd.png");
 
     // Resolve theme
     let cfg = config::Config::load(&sounds_dir);
@@ -80,7 +79,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or(action.body);
 
         if !action.skip_notify {
-            notify::send_notification(&title, &body, &icon_path);
+            notify::send_notification(&title, &body);
         }
 
         if let Some(ref pick) = pick {
@@ -88,7 +87,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let _ = audio::play_sound(&sound_path);
         }
     } else if !action.skip_notify {
-        notify::send_notification(&action.title, &action.body, &icon_path);
+        notify::send_notification(&action.title, &action.body);
     }
 
     Ok(())
