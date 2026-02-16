@@ -1,16 +1,9 @@
-BINARY   := rust-ringring
-VERSION  := $(shell grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
-DIST     := dist
+BINARY := rust-ringring
+DIST   := dist
+HOST   := $(shell rustc -vV | sed -n 's/host: //p')
 
-TARGETS := \
-	x86_64-unknown-linux-gnu \
-	aarch64-unknown-linux-gnu \
-	x86_64-apple-darwin \
-	aarch64-apple-darwin
+.PHONY: all clean test install dist
 
-.PHONY: all clean test native $(TARGETS)
-
-# Default: build for host platform
 all: native
 
 native:
@@ -23,18 +16,25 @@ clean:
 	cargo clean
 	rm -rf $(DIST)
 
-# Cross-compile a single target: make x86_64-unknown-linux-gnu
-$(TARGETS):
-	cross build --release --target $@
+# Build for host and package into dist/
+dist:
 	@mkdir -p $(DIST)
-	cp target/$@/release/$(BINARY) $(DIST)/$(BINARY)-$@
-
-# Build all targets
-dist: $(TARGETS)
-	@echo "Built binaries:"
+	cargo build --release --target $(HOST)
+	cp target/$(HOST)/release/$(BINARY) $(DIST)/$(BINARY)-$(HOST)
+	@echo "Built:"
 	@ls -lh $(DIST)/
 
-# Install to ~/.claude/ for current platform
 install: native
 	cp target/release/$(BINARY) $(HOME)/.claude/$(BINARY)
 	@echo "Installed to ~/.claude/$(BINARY)"
+
+# Cross-compile a specific target, e.g.: make cross TARGET=aarch64-unknown-linux-gnu
+# Requires the target toolchain: rustup target add <target>
+# Requires a cross-linker (e.g. aarch64-linux-gnu-gcc) or use cargo-zigbuild
+cross:
+ifndef TARGET
+	$(error TARGET is required, e.g. make cross TARGET=aarch64-unknown-linux-gnu)
+endif
+	@mkdir -p $(DIST)
+	cargo build --release --target $(TARGET)
+	cp target/$(TARGET)/release/$(BINARY) $(DIST)/$(BINARY)-$(TARGET)
