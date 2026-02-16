@@ -1,9 +1,9 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Manifest {
     #[allow(dead_code)]
     pub name: String,
@@ -12,7 +12,7 @@ pub struct Manifest {
     pub categories: HashMap<String, Category>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Category {
     #[serde(default)]
     pub title: Option<String>,
@@ -22,7 +22,7 @@ pub struct Category {
     pub sounds: Vec<Sound>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Sound {
     pub file: String,
     #[serde(default)]
