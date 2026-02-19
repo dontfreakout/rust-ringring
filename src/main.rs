@@ -173,6 +173,14 @@ mod tests {
         let cmd = parse_args(&args);
         assert!(matches!(cmd, Cmd::Hook));
     }
+
+    #[test]
+    fn parse_test_args_missing_theme() {
+        let args = vec!["ringring".to_string(), "test".to_string()];
+        let cmd = parse_args(&args);
+        // theme will be empty string — run_test handles the error
+        assert!(matches!(cmd, Cmd::Test { ref theme, .. } if theme.is_empty()));
+    }
 }
 
 fn handle_session_start(
