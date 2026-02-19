@@ -106,21 +106,19 @@ fn run_test(theme: &str, category: Option<&str>) -> Result<(), Box<dyn std::erro
     let manifest = manifest::Manifest::load(&theme_dir)
         .ok_or_else(|| format!("no manifest found for theme '{theme}'"))?;
 
-    let categories: Vec<&str> = if let Some(cat) = category {
-        if !manifest.categories.contains_key(cat) {
-            return Err(format!("category '{cat}' not found in theme '{theme}'").into());
-        }
-        vec![cat]
+    let categories: Vec<(&str, &manifest::Category)> = if let Some(cat) = category {
+        let entry = manifest.categories.get(cat)
+            .ok_or_else(|| format!("category '{cat}' not found in theme '{theme}'"))?;
+        vec![(cat, entry)]
     } else {
-        let mut keys: Vec<&str> = manifest.categories.keys().map(|s| s.as_str()).collect();
-        keys.sort();
-        keys
+        let mut pairs: Vec<(&str, &manifest::Category)> =
+            manifest.categories.iter().map(|(k, v)| (k.as_str(), v)).collect();
+        pairs.sort_by_key(|(k, _)| *k);
+        pairs
     };
 
-    for cat_name in &categories {
-        let Some(cat) = manifest.categories.get(*cat_name) else {
-            continue;
-        };
+    for (cat_name, cat) in &categories {
+        // Preview mode: play every sound in the category, not a random pick.
         for sound in &cat.sounds {
             println!("[{cat_name}] {}", sound.file);
             let sound_path = theme_dir.join("sounds").join(&sound.file);
