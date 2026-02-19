@@ -24,7 +24,7 @@ fn parse_args(args: &[String]) -> Cmd {
             Cmd::Test { theme, category }
         }
         Some("list") => {
-            let debug = args.get(2..).unwrap_or(&[]).contains(&"--debug".to_string());
+            let debug = args.get(2..).unwrap_or(&[]).iter().any(|a| a == "--debug");
             Cmd::List { debug }
         }
         _ => Cmd::Hook,
