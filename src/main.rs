@@ -15,7 +15,7 @@ enum Cmd {
 fn parse_args(args: &[String]) -> Cmd {
     if args.get(1).map(|s| s.as_str()) == Some("test") {
         let theme = args.get(2).cloned().unwrap_or_default();
-        let category = args
+        let category = args.get(3..).unwrap_or(&[])
             .windows(2)
             .find(|w| w[0] == "--category")
             .map(|w| w[1].clone());
@@ -120,6 +120,20 @@ mod tests {
         ];
         let cmd = parse_args(&args);
         assert!(matches!(cmd, Cmd::Test { theme, category: Some(cat) } if theme == "peon" && cat == "greeting"));
+    }
+
+    #[test]
+    fn parse_test_args_category_flag_not_confused_with_theme() {
+        // No theme given; --category should NOT be picked up as a category value
+        let args = vec![
+            "ringring".to_string(),
+            "test".to_string(),
+            "--category".to_string(),
+            "greeting".to_string(),
+        ];
+        let cmd = parse_args(&args);
+        // theme is "--category" (args[2]), no --category flag in args[3..]
+        assert!(matches!(cmd, Cmd::Test { ref theme, category: None } if theme == "--category"));
     }
 
     #[test]
