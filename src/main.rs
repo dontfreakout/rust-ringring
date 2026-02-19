@@ -103,8 +103,35 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run_list(_debug: bool) {
-    // TODO: implement
+fn run_list(debug: bool) {
+    let Ok(home) = std::env::var("HOME") else { return };
+    let sounds_dir = PathBuf::from(&home).join(".claude/sounds");
+
+    let Ok(entries) = std::fs::read_dir(&sounds_dir) else { return };
+
+    let mut themes: Vec<(String, manifest::Manifest)> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let m = manifest::Manifest::load(&e.path())?;
+            Some((name, m))
+        })
+        .collect();
+
+    themes.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+    for (name, manifest) in &themes {
+        if debug {
+            print_theme_debug(name, manifest);
+        } else {
+            println!("{}\t{}", name, manifest.display_name);
+        }
+    }
+}
+
+fn print_theme_debug(_name: &str, _manifest: &manifest::Manifest) {
+    // TODO: implement in Task 3
 }
 
 fn run_test(theme: &str, category: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
