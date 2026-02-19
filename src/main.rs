@@ -94,7 +94,40 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run_test(_theme: &str, _category: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+fn run_test(theme: &str, category: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    if theme.is_empty() {
+        return Err("usage: ringring test <theme> [--category <cat>]".into());
+    }
+
+    let home = std::env::var("HOME")?;
+    let sounds_dir = PathBuf::from(&home).join(".claude/sounds");
+    let theme_dir = config::theme_dir(&sounds_dir, theme);
+
+    let manifest = manifest::Manifest::load(&theme_dir)
+        .ok_or_else(|| format!("no manifest found for theme '{theme}'"))?;
+
+    let categories: Vec<&str> = if let Some(cat) = category {
+        if !manifest.categories.contains_key(cat) {
+            return Err(format!("category '{cat}' not found in theme '{theme}'").into());
+        }
+        vec![cat]
+    } else {
+        let mut keys: Vec<&str> = manifest.categories.keys().map(|s| s.as_str()).collect();
+        keys.sort();
+        keys
+    };
+
+    for cat_name in &categories {
+        let Some(cat) = manifest.categories.get(*cat_name) else {
+            continue;
+        };
+        for sound in &cat.sounds {
+            println!("[{cat_name}] {}", sound.file);
+            let sound_path = theme_dir.join("sounds").join(&sound.file);
+            let _ = audio::play_sound(&sound_path);
+        }
+    }
+
     Ok(())
 }
 
