@@ -10,18 +10,24 @@ use std::path::PathBuf;
 enum Cmd {
     Hook,
     Test { theme: String, category: Option<String> },
+    List { debug: bool },
 }
 
 fn parse_args(args: &[String]) -> Cmd {
-    if args.get(1).map(|s| s.as_str()) == Some("test") {
-        let theme = args.get(2).cloned().unwrap_or_default();
-        let category = args.get(3..).unwrap_or(&[])
-            .windows(2)
-            .find(|w| w[0] == "--category")
-            .map(|w| w[1].clone());
-        Cmd::Test { theme, category }
-    } else {
-        Cmd::Hook
+    match args.get(1).map(|s| s.as_str()) {
+        Some("test") => {
+            let theme = args.get(2).cloned().unwrap_or_default();
+            let category = args.get(3..).unwrap_or(&[])
+                .windows(2)
+                .find(|w| w[0] == "--category")
+                .map(|w| w[1].clone());
+            Cmd::Test { theme, category }
+        }
+        Some("list") => {
+            let debug = args.get(2..).unwrap_or(&[]).contains(&"--debug".to_string());
+            Cmd::List { debug }
+        }
+        _ => Cmd::Hook,
     }
 }
 
@@ -33,6 +39,9 @@ fn main() {
                 eprintln!("ringring test: {e}");
                 std::process::exit(1);
             }
+        }
+        Cmd::List { debug } => {
+            run_list(debug);
         }
         Cmd::Hook => {
             let _ = run();
@@ -92,6 +101,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn run_list(_debug: bool) {
+    // TODO: implement
 }
 
 fn run_test(theme: &str, category: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
@@ -180,6 +193,20 @@ mod tests {
         let cmd = parse_args(&args);
         // theme will be empty string — run_test handles the error
         assert!(matches!(cmd, Cmd::Test { ref theme, .. } if theme.is_empty()));
+    }
+
+    #[test]
+    fn parse_list_no_flags() {
+        let args = vec!["ringring".to_string(), "list".to_string()];
+        let cmd = parse_args(&args);
+        assert!(matches!(cmd, Cmd::List { debug: false }));
+    }
+
+    #[test]
+    fn parse_list_with_debug() {
+        let args = vec!["ringring".to_string(), "list".to_string(), "--debug".to_string()];
+        let cmd = parse_args(&args);
+        assert!(matches!(cmd, Cmd::List { debug: true }));
     }
 }
 
