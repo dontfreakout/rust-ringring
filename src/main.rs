@@ -7,9 +7,37 @@ mod notify;
 use std::fs;
 use std::path::PathBuf;
 
+enum Cmd {
+    Hook,
+    Test { theme: String, category: Option<String> },
+}
+
+fn parse_args(args: &[String]) -> Cmd {
+    if args.get(1).map(|s| s.as_str()) == Some("test") {
+        let theme = args.get(2).cloned().unwrap_or_default();
+        let category = args
+            .windows(2)
+            .find(|w| w[0] == "--category")
+            .map(|w| w[1].clone());
+        Cmd::Test { theme, category }
+    } else {
+        Cmd::Hook
+    }
+}
+
 fn main() {
-    // Silent failure — hooks must never block Claude Code
-    let _ = run();
+    let args: Vec<String> = std::env::args().collect();
+    match parse_args(&args) {
+        Cmd::Test { theme, category } => {
+            if let Err(e) = run_test(&theme, category.as_deref()) {
+                eprintln!("ringring test: {e}");
+                std::process::exit(1);
+            }
+        }
+        Cmd::Hook => {
+            let _ = run();
+        }
+    }
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,6 +92,42 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn run_test(_theme: &str, _category: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_test_args_theme_only() {
+        let args = vec!["ringring".to_string(), "test".to_string(), "peon".to_string()];
+        let cmd = parse_args(&args);
+        assert!(matches!(cmd, Cmd::Test { theme, category: None } if theme == "peon"));
+    }
+
+    #[test]
+    fn parse_test_args_with_category() {
+        let args = vec![
+            "ringring".to_string(),
+            "test".to_string(),
+            "peon".to_string(),
+            "--category".to_string(),
+            "greeting".to_string(),
+        ];
+        let cmd = parse_args(&args);
+        assert!(matches!(cmd, Cmd::Test { theme, category: Some(cat) } if theme == "peon" && cat == "greeting"));
+    }
+
+    #[test]
+    fn parse_hook_mode_when_no_subcommand() {
+        let args = vec!["ringring".to_string()];
+        let cmd = parse_args(&args);
+        assert!(matches!(cmd, Cmd::Hook));
+    }
 }
 
 fn handle_session_start(
