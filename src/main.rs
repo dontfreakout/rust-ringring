@@ -130,8 +130,21 @@ fn run_list(debug: bool) {
     }
 }
 
-fn print_theme_debug(_name: &str, _manifest: &manifest::Manifest) {
-    // TODO: implement in Task 3
+fn print_theme_debug(name: &str, manifest: &manifest::Manifest) {
+    println!("=== {} ({}) ===", name, manifest.display_name);
+    let mut categories: Vec<(&str, &manifest::Category)> =
+        manifest.categories.iter().map(|(k, v)| (k.as_str(), v)).collect();
+    categories.sort_by_key(|(k, _)| *k);
+    for (cat_name, cat) in categories {
+        println!("  {}:", cat_name);
+        for sound in &cat.sounds {
+            if let Some(ref line) = sound.line {
+                println!("    - {}  \"{}\"", sound.file, line);
+            } else {
+                println!("    - {}", sound.file);
+            }
+        }
+    }
 }
 
 fn run_test(theme: &str, category: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
