@@ -65,10 +65,93 @@ pub fn register_hooks(settings_path: &Path) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
+/// Find the single top-level directory name in a zip archive.
+fn zip_theme_name(archive: &mut zip::ZipArchive<std::fs::File>) -> Result<String, Box<dyn std::error::Error>> {
+    let mut top_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i)?;
+        let first = entry.name().split('/').next().unwrap_or("").to_string();
+        if !first.is_empty() {
+            top_dirs.insert(first);
+        }
+    }
+    if top_dirs.len() != 1 {
+        return Err(format!(
+            "zip must contain exactly one top-level directory, found {}",
+            top_dirs.len()
+        )
+        .into());
+    }
+    Ok(top_dirs.into_iter().next().unwrap())
+}
+
+/// Extract a zip archive into `dest_parent`. All entries placed relative to `dest_parent`.
+fn extract_zip(archive: &mut zip::ZipArchive<std::fs::File>, dest_parent: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i)?;
+        let out_path = dest_parent.join(entry.name());
+        if entry.is_dir() {
+            std::fs::create_dir_all(&out_path)?;
+        } else {
+            if let Some(parent) = out_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut out = std::fs::File::create(&out_path)?;
+            std::io::copy(&mut entry, &mut out)?;
+        }
+    }
+    Ok(())
+}
+
+/// Install a theme from a local zip path or an http(s):// URL.
+/// Returns the theme name on success.
+pub fn theme_install(source: &str, data_dir: &Path, force: bool) -> Result<String, Box<dyn std::error::Error>> {
+    // Resolve to a local zip file (download if URL)
+    let tmp_file;
+    let zip_path: &Path = if source.starts_with("http://") || source.starts_with("https://") {
+        let tmp = tempfile::NamedTempFile::new()?;
+        let response = ureq::get(source).call()?;
+        let mut reader = response.into_reader();
+        let mut file = std::fs::File::create(tmp.path())?;
+        std::io::copy(&mut reader, &mut file)?;
+        tmp_file = tmp;
+        tmp_file.path()
+    } else {
+        std::path::Path::new(source)
+    };
+
+    let file = std::fs::File::open(zip_path)?;
+    let mut archive = zip::ZipArchive::new(file)?;
+    let theme_name = zip_theme_name(&mut archive)?;
+
+    let dest = data_dir.join(&theme_name);
+    if dest.exists() {
+        if !force {
+            return Err(format!(
+                "theme '{}' already exists; use --force to overwrite",
+                theme_name
+            )
+            .into());
+        }
+        std::fs::remove_dir_all(&dest)?;
+    }
+
+    extract_zip(&mut archive, data_dir)?;
+
+    // Validate manifest exists; clean up if not
+    if !dest.join("manifest.json").exists() {
+        let _ = std::fs::remove_dir_all(&dest);
+        return Err(format!("theme '{}' has no manifest.json", theme_name).into());
+    }
+
+    Ok(theme_name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn install_binary_copies_and_makes_executable() {
@@ -140,5 +223,75 @@ mod tests {
                 .count();
             assert_eq!(count, 1, "duplicate ringring entry for {event}");
         }
+    }
+
+    fn make_theme_zip(tmp: &tempfile::TempDir, theme_name: &str) -> PathBuf {
+        use std::io::Write;
+        let zip_path = tmp.path().join("theme.zip");
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.add_directory(format!("{theme_name}/"), opts).unwrap();
+        zip.add_directory(format!("{theme_name}/sounds/"), opts).unwrap();
+        zip.start_file(format!("{theme_name}/manifest.json"), opts).unwrap();
+        zip.write_all(br#"{"display_name":"Test","categories":{}}"#).unwrap();
+        zip.start_file(format!("{theme_name}/sounds/beep.wav"), opts).unwrap();
+        zip.write_all(b"RIFF....").unwrap();
+        zip.finish().unwrap();
+        zip_path
+    }
+
+    #[test]
+    fn theme_install_from_local_zip() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = make_theme_zip(&tmp, "mytheme");
+        let data_dir = tmp.path().join("data");
+        fs::create_dir_all(&data_dir).unwrap();
+        let name = theme_install(&zip_path.to_string_lossy(), &data_dir, false).unwrap();
+        assert_eq!(name, "mytheme");
+        assert!(data_dir.join("mytheme/manifest.json").exists());
+        assert!(data_dir.join("mytheme/sounds/beep.wav").exists());
+    }
+
+    #[test]
+    fn theme_install_rejects_existing_without_force() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = make_theme_zip(&tmp, "mytheme");
+        let data_dir = tmp.path().join("data");
+        fs::create_dir_all(&data_dir).unwrap();
+        theme_install(&zip_path.to_string_lossy(), &data_dir, false).unwrap();
+        let err = theme_install(&zip_path.to_string_lossy(), &data_dir, false).unwrap_err();
+        assert!(err.to_string().contains("already exists"), "expected 'already exists', got: {err}");
+    }
+
+    #[test]
+    fn theme_install_force_overwrites() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = make_theme_zip(&tmp, "mytheme");
+        let data_dir = tmp.path().join("data");
+        fs::create_dir_all(&data_dir).unwrap();
+        theme_install(&zip_path.to_string_lossy(), &data_dir, false).unwrap();
+        theme_install(&zip_path.to_string_lossy(), &data_dir, true).unwrap();
+        assert!(data_dir.join("mytheme/manifest.json").exists());
+    }
+
+    #[test]
+    fn theme_install_rejects_missing_manifest() {
+        use std::io::Write;
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("bad.zip");
+        let file = fs::File::create(&zip_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.add_directory("nomanifest/", opts).unwrap();
+        zip.start_file("nomanifest/sounds/beep.wav", opts).unwrap();
+        zip.write_all(b"data").unwrap();
+        zip.finish().unwrap();
+
+        let data_dir = tmp.path().join("data");
+        fs::create_dir_all(&data_dir).unwrap();
+        let err = theme_install(&zip_path.to_string_lossy(), &data_dir, false).unwrap_err();
+        assert!(err.to_string().contains("manifest.json"));
+        assert!(!data_dir.join("nomanifest").exists());
     }
 }
