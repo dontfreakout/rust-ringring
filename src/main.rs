@@ -3,6 +3,7 @@ mod config;
 mod event;
 mod manifest;
 mod notify;
+mod paths;
 
 use std::fs;
 use std::path::PathBuf;
