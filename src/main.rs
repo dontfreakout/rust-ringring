@@ -216,11 +216,15 @@ fn run_install() -> Result<(), Box<dyn std::error::Error>> {
     let config_dir = paths::config_dir();
     let data_dir = paths::data_dir();
 
-    std::fs::create_dir_all(&config_dir)?;
-    println!("created {}", config_dir.display());
+    if !config_dir.exists() {
+        std::fs::create_dir_all(&config_dir)?;
+        println!("created {}", config_dir.display());
+    }
 
-    std::fs::create_dir_all(&data_dir)?;
-    println!("created {}", data_dir.display());
+    if !data_dir.exists() {
+        std::fs::create_dir_all(&data_dir)?;
+        println!("created {}", data_dir.display());
+    }
 
     install::install_binary(&bin_dir)?;
     println!("installed binary to {}", bin_dir.join("ringring").display());

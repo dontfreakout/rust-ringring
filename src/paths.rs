@@ -25,19 +25,19 @@ fn platform_data_fallback() -> std::path::PathBuf {
 }
 
 pub fn config_dir() -> std::path::PathBuf {
-    if let Ok(base) = std::env::var("XDG_CONFIG_HOME") {
-        if !base.is_empty() {
-            return std::path::PathBuf::from(base).join("ringring");
-        }
+    if let Ok(base) = std::env::var("XDG_CONFIG_HOME")
+        && !base.is_empty()
+    {
+        return std::path::PathBuf::from(base).join("ringring");
     }
     platform_config_fallback().join("ringring")
 }
 
 pub fn data_dir() -> std::path::PathBuf {
-    if let Ok(base) = std::env::var("XDG_DATA_HOME") {
-        if !base.is_empty() {
-            return std::path::PathBuf::from(base).join("ringring");
-        }
+    if let Ok(base) = std::env::var("XDG_DATA_HOME")
+        && !base.is_empty()
+    {
+        return std::path::PathBuf::from(base).join("ringring");
     }
     platform_data_fallback().join("ringring")
 }

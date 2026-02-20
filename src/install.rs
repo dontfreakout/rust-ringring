@@ -57,6 +57,9 @@ pub fn register_hooks(settings_path: &Path) -> Result<(), Box<dyn std::error::Er
     }
 
     // Atomic write: write to .tmp then rename
+    if let Some(parent) = settings_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let tmp_path = settings_path.with_extension("json.tmp");
     let serialized = serde_json::to_string_pretty(&root)?;
     std::fs::write(&tmp_path, serialized)?;
@@ -70,17 +73,28 @@ fn zip_theme_name(archive: &mut zip::ZipArchive<std::fs::File>) -> Result<String
     let mut top_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
     for i in 0..archive.len() {
         let entry = archive.by_index(i)?;
-        let first = entry.name().split('/').next().unwrap_or("").to_string();
-        if !first.is_empty() {
-            top_dirs.insert(first);
+        if let Some(rel) = entry.enclosed_name() {
+            if let Some(first) = rel.components().next() {
+                let name = first.as_os_str().to_string_lossy().into_owned();
+                if !name.is_empty() {
+                    top_dirs.insert(name);
+                }
+            }
         }
     }
-    if top_dirs.len() != 1 {
+    if top_dirs.is_empty() {
+        return Err("zip is empty or contains no files".into());
+    }
+    if top_dirs.len() > 1 {
         return Err(format!(
-            "zip must contain exactly one top-level directory, found {}",
-            top_dirs.len()
-        )
-        .into());
+            "zip must contain exactly one top-level directory, found {}: {}",
+            top_dirs.len(),
+            {
+                let mut names: Vec<_> = top_dirs.into_iter().collect();
+                names.sort();
+                names.join(", ")
+            }
+        ).into());
     }
     Ok(top_dirs.into_iter().next().unwrap())
 }
@@ -89,7 +103,8 @@ fn zip_theme_name(archive: &mut zip::ZipArchive<std::fs::File>) -> Result<String
 fn extract_zip(archive: &mut zip::ZipArchive<std::fs::File>, dest_parent: &Path) -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
-        let out_path = dest_parent.join(entry.name());
+        let Some(rel_path) = entry.enclosed_name() else { continue };
+        let out_path = dest_parent.join(&rel_path);
         if entry.is_dir() {
             std::fs::create_dir_all(&out_path)?;
         } else {
