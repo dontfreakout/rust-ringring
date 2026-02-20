@@ -13,6 +13,8 @@ enum Cmd {
     Hook,
     Test { theme: String, category: Option<String> },
     List { debug: bool },
+    Install,
+    ThemeInstall { source: String, force: bool },
 }
 
 fn parse_args(args: &[String]) -> Cmd {
@@ -28,6 +30,21 @@ fn parse_args(args: &[String]) -> Cmd {
         Some("list") => {
             let debug = args.get(2..).unwrap_or(&[]).iter().any(|a| a == "--debug");
             Cmd::List { debug }
+        }
+        Some("install") => Cmd::Install,
+        Some("theme") => {
+            match args.get(2).map(|s| s.as_str()) {
+                Some("install") => {
+                    let rest = args.get(3..).unwrap_or(&[]);
+                    let force = rest.iter().any(|a| a == "--force");
+                    let source = rest.iter()
+                        .find(|a| *a != "--force")
+                        .cloned()
+                        .unwrap_or_default();
+                    Cmd::ThemeInstall { source, force }
+                }
+                _ => Cmd::Hook,
+            }
         }
         _ => Cmd::Hook,
     }
@@ -47,6 +64,18 @@ fn main() {
         }
         Cmd::Hook => {
             let _ = run();
+        }
+        Cmd::Install => {
+            if let Err(e) = run_install() {
+                eprintln!("ringring install: {e}");
+                std::process::exit(1);
+            }
+        }
+        Cmd::ThemeInstall { source, force } => {
+            if let Err(e) = run_theme_install(&source, force) {
+                eprintln!("ringring theme install: {e}");
+                std::process::exit(1);
+            }
         }
     }
 }
@@ -181,6 +210,38 @@ fn run_test(theme: &str, category: Option<&str>) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+fn run_install() -> Result<(), Box<dyn std::error::Error>> {
+    let home = std::env::var("HOME").map_err(|_| "HOME not set")?;
+    let bin_dir = PathBuf::from(&home).join(".local/bin");
+    let config_dir = paths::config_dir();
+    let data_dir = paths::data_dir();
+
+    std::fs::create_dir_all(&config_dir)?;
+    println!("created {}", config_dir.display());
+
+    std::fs::create_dir_all(&data_dir)?;
+    println!("created {}", data_dir.display());
+
+    install::install_binary(&bin_dir)?;
+    println!("installed binary to {}", bin_dir.join("ringring").display());
+
+    let settings_path = PathBuf::from(&home).join(".claude/settings.json");
+    install::register_hooks(&settings_path)?;
+    println!("registered hooks in {}", settings_path.display());
+
+    Ok(())
+}
+
+fn run_theme_install(source: &str, force: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if source.is_empty() {
+        return Err("usage: ringring theme install [--force] <path|url>".into());
+    }
+    let data_dir = paths::data_dir();
+    let theme_name = install::theme_install(source, &data_dir, force)?;
+    println!("installed theme '{theme_name}' to {}", data_dir.join(&theme_name).display());
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,6 +307,30 @@ mod tests {
         let args = vec!["ringring".to_string(), "list".to_string(), "--debug".to_string()];
         let cmd = parse_args(&args);
         assert!(matches!(cmd, Cmd::List { debug: true }));
+    }
+
+    #[test]
+    fn parse_install() {
+        let args = vec!["ringring".to_string(), "install".to_string()];
+        assert!(matches!(parse_args(&args), Cmd::Install));
+    }
+
+    #[test]
+    fn parse_theme_install_local() {
+        let args = vec!["ringring".to_string(), "theme".to_string(), "install".to_string(), "/tmp/foo.zip".to_string()];
+        assert!(matches!(parse_args(&args), Cmd::ThemeInstall { ref source, force: false } if source == "/tmp/foo.zip"));
+    }
+
+    #[test]
+    fn parse_theme_install_force() {
+        let args = vec!["ringring".to_string(), "theme".to_string(), "install".to_string(), "--force".to_string(), "https://example.com/t.zip".to_string()];
+        assert!(matches!(parse_args(&args), Cmd::ThemeInstall { ref source, force: true } if source == "https://example.com/t.zip"));
+    }
+
+    #[test]
+    fn parse_theme_install_missing_source() {
+        let args = vec!["ringring".to_string(), "theme".to_string(), "install".to_string()];
+        assert!(matches!(parse_args(&args), Cmd::ThemeInstall { ref source, .. } if source.is_empty()));
     }
 }
 
