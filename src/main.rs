@@ -54,8 +54,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let input_str = std::io::read_to_string(std::io::stdin())?;
     let hook_input: event::HookInput = serde_json::from_str(&input_str)?;
 
-    let home = std::env::var("HOME")?;
-    let sounds_dir = PathBuf::from(&home).join(".claude/sounds");
+    let sounds_dir = paths::data_dir();
 
     let cfg = config::Config::load(&sounds_dir);
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -105,8 +104,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_list(debug: bool) {
-    let Ok(home) = std::env::var("HOME") else { return };
-    let sounds_dir = PathBuf::from(&home).join(".claude/sounds");
+    let sounds_dir = paths::data_dir();
 
     let Ok(entries) = std::fs::read_dir(&sounds_dir) else { return };
 
@@ -153,8 +151,7 @@ fn run_test(theme: &str, category: Option<&str>) -> Result<(), Box<dyn std::erro
         return Err("usage: ringring test <theme> [--category <cat>]".into());
     }
 
-    let home = std::env::var("HOME")?;
-    let sounds_dir = PathBuf::from(&home).join(".claude/sounds");
+    let sounds_dir = paths::data_dir();
     let theme_dir = config::theme_dir(&sounds_dir, theme);
 
     let manifest = manifest::Manifest::load(&theme_dir)
