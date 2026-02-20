@@ -4,6 +4,7 @@ mod event;
 mod manifest;
 mod notify;
 mod paths;
+mod install;
 
 use std::fs;
 use std::path::PathBuf;
