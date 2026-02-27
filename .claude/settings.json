@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "PostToolUse": [{
+	    "matcher": "Edit",
+	    "hooks": [
+		{
+		"type": "command",    
+		"command": "cargo check --quiet 2>&1 | head -20",
+		"description": "Quick type-check after edits"
+		}
+	    ]
+    }],
+    "PreToolUse": [{
+	    "matcher": "Bash(git commit:*)",
+	    "hooks": [
+		{
+			"type": "command",
+			"command": "cargo test --quiet",
+			"description": "Run tests before any commit"
+		}
+	    ]
+    }]
+  }
+}
