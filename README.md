@@ -21,24 +21,42 @@ Requires Rust 1.85+ (2024 edition).
 ```bash
 git clone https://github.com/YOUR_USER/rust-ringring.git
 cd rust-ringring
-make install
+cargo build --release
 ```
 
-This builds a release binary and copies it to `~/.claude/rust-ringring`.
+### Install binary and hooks
 
-### Configure the hook
-
-Add to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "Stop": [{ "type": "command", "command": "echo '$HOOK_EVENT' | ~/.claude/rust-ringring" }],
-    "Notification": [{ "type": "command", "command": "echo '$HOOK_EVENT' | ~/.claude/rust-ringring" }],
-    "SessionStart": [{ "type": "command", "command": "echo '$HOOK_EVENT' | ~/.claude/rust-ringring" }]
-  }
-}
+```bash
+ringring install
 ```
+
+This copies the binary to `~/.local/bin/ringring` and registers hook entries in `~/.claude/settings.json` for `SessionStart`, `Stop`, `Notification`, and `PermissionRequest`. The command is idempotent — safe to re-run without duplicating hooks.
+
+## Usage
+
+### List installed themes
+
+```bash
+ringring list            # name and display name
+ringring list --debug    # full breakdown of categories and sounds
+```
+
+### Test a theme
+
+```bash
+ringring test peon                        # play all sounds in all categories
+ringring test peon --category greeting    # play only greeting sounds
+```
+
+### Install a theme from zip
+
+```bash
+ringring theme install /path/to/theme.zip
+ringring theme install https://example.com/mytheme.zip
+ringring theme install --force /path/to/theme.zip   # overwrite existing
+```
+
+The zip must contain a single top-level directory with a `manifest.json` inside it. The theme is extracted to `~/.local/share/ringring/<theme-name>/`.
 
 ## Sound Themes
 
