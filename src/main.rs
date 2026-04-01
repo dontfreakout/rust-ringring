@@ -20,6 +20,7 @@ enum Cmd {
     SessionUnmute { session_id: String },
     Mode { mode: String },
     Status { session_id: Option<String> },
+    DetectSession,
 }
 
 fn parse_args(args: &[String]) -> Cmd {
@@ -52,7 +53,12 @@ fn parse_args(args: &[String]) -> Cmd {
             }
         }
         Some("session") => {
-            let session_id = args.get(2).cloned().unwrap_or_default();
+            let raw_id = args.get(2).cloned().unwrap_or_default();
+            let session_id = if raw_id.is_empty() {
+                detect_session_id().unwrap_or_default()
+            } else {
+                raw_id
+            };
             match args.get(3).map(|s| s.as_str()) {
                 Some("theme") => {
                     let theme = args.get(4).cloned().unwrap_or_default();
@@ -70,6 +76,15 @@ fn parse_args(args: &[String]) -> Cmd {
         Some("status") => {
             let session_id = args.get(2).cloned();
             Cmd::Status { session_id }
+        }
+        Some("detect-session") => Cmd::DetectSession,
+        Some("mute") => {
+            let session_id = detect_session_id().unwrap_or_default();
+            Cmd::SessionMute { session_id }
+        }
+        Some("unmute") => {
+            let session_id = detect_session_id().unwrap_or_default();
+            Cmd::SessionUnmute { session_id }
         }
         _ => Cmd::Hook,
     }
@@ -127,7 +142,13 @@ fn main() {
             }
         }
         Cmd::Status { session_id } => {
+            let session_id = session_id.or_else(detect_session_id);
             run_status(session_id.as_deref());
+        }
+        Cmd::DetectSession => {
+            if let Some(sid) = detect_session_id() {
+                println!("{sid}");
+            }
         }
     }
 }
@@ -136,6 +157,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let input_str = std::io::read_to_string(std::io::stdin())?;
 
     let hook_input: event::HookInput = serde_json::from_str(&input_str)?;
+
+    // Write PID-to-session mapping so detect-session can find us
+    if !hook_input.session_id.is_empty() {
+        let ppid = std::os::unix::process::parent_id();
+        let _ = fs::write(
+            format!("/tmp/.claude-ringring-cpid-{ppid}"),
+            &hook_input.session_id,
+        );
+    }
 
     let sounds_dir = paths::data_dir();
 
@@ -452,25 +482,101 @@ fn run_set_mode(mode: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Walk up the process tree looking for a `.claude-ringring-cpid-{pid}` file
+/// written by a prior hook invocation in the same Claude Code instance.
+fn detect_session_id() -> Option<String> {
+    let mut pid = std::process::id();
+    for _ in 0..20 {
+        let path = format!("/tmp/.claude-ringring-cpid-{pid}");
+        if let Ok(sid) = fs::read_to_string(&path) {
+            let sid = sid.trim().to_string();
+            if !sid.is_empty() {
+                return Some(sid);
+            }
+        }
+        match read_ppid(pid) {
+            Some(ppid) if ppid > 1 && ppid != pid => pid = ppid,
+            _ => break,
+        }
+    }
+    // Fallback: most recent theme cache file
+    detect_session_from_theme_files()
+}
+
+#[cfg(target_os = "linux")]
+fn read_ppid(pid: u32) -> Option<u32> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // Format: pid (comm) state ppid ...
+    // Find closing paren to skip comm (which may contain spaces/parens)
+    let after_comm = stat.rfind(')')? + 2;
+    let fields: Vec<&str> = stat[after_comm..].split_whitespace().collect();
+    // fields[0] = state, fields[1] = ppid
+    fields.get(1)?.parse().ok()
+}
+
+#[cfg(target_os = "macos")]
+fn read_ppid(pid: u32) -> Option<u32> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "ppid=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&output.stdout);
+    s.trim().parse().ok()
+}
+
+fn detect_session_from_theme_files() -> Option<String> {
+    let entries: Vec<_> = fs::read_dir("/tmp")
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with(".claude-theme-")
+        })
+        .collect();
+
+    entries
+        .iter()
+        .filter_map(|e| {
+            let mtime = e.metadata().ok()?.modified().ok()?;
+            let name = e.file_name().to_string_lossy().into_owned();
+            let sid = name.strip_prefix(".claude-theme-")?.to_string();
+            Some((sid, mtime))
+        })
+        .max_by_key(|(_, mtime)| *mtime)
+        .map(|(sid, _)| sid)
+}
+
 fn run_status(session_id: Option<&str>) {
     let sounds_dir = paths::data_dir();
     let cfg = config::Config::load(&sounds_dir);
 
-    println!("data dir:  {}", sounds_dir.display());
-    println!("mode:      {}", cfg.mode.as_deref().unwrap_or("(default)"));
-    println!("theme:     {}", cfg.theme.as_deref().unwrap_or("(none)"));
-    if !cfg.random_pool.is_empty() {
-        println!("pool:      {}", cfg.random_pool.join(", "));
-    }
+    println!("| Setting | Value |");
+    println!("|---------|-------|");
 
     if let Some(sid) = session_id {
-        let theme_file = format!("/tmp/.claude-theme-{sid}");
-        let theme = fs::read_to_string(&theme_file).ok().map(|s| s.trim().to_string());
         let muted = PathBuf::from(format!("/tmp/.claude-mute-{sid}")).exists();
-        println!("session:   {sid}");
-        println!("  theme:   {}", theme.as_deref().unwrap_or("(not set)"));
-        println!("  muted:   {muted}");
+
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let resolver = config::ThemeResolver {
+            sounds_dir: &sounds_dir,
+            config: &cfg,
+            session_id: sid,
+            cwd: cwd.to_string_lossy().into_owned(),
+        };
+        let effective = resolver.resolve();
+
+        println!("| Session | `{sid}` |");
+        println!("| Theme | {effective} |");
+        println!("| Muted | {muted} |");
     }
+
+    println!("| Mode | {} |", cfg.mode.as_deref().unwrap_or("(default)"));
+    println!("| Default theme | {} |", cfg.theme.as_deref().unwrap_or("(none)"));
+    if !cfg.random_pool.is_empty() {
+        println!("| Pool | {} |", cfg.random_pool.join(", "));
+    }
+    println!("| Data dir | `{}` |", sounds_dir.display());
 }
 
 fn handle_session_start(
