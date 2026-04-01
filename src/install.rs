@@ -16,6 +16,15 @@ pub fn install_binary(dest_dir: &Path) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
+/// Install the /ringring slash command into ~/.claude/commands/.
+pub fn install_command(claude_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let commands_dir = claude_dir.join("commands");
+    std::fs::create_dir_all(&commands_dir)?;
+    let dest = commands_dir.join("ringring.md");
+    std::fs::write(&dest, include_str!("../commands/ringring.md"))?;
+    Ok(())
+}
+
 /// Merge ringring hook entries into the Claude Code settings.json at `settings_path`.
 pub fn register_hooks(settings_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let content = std::fs::read_to_string(settings_path).unwrap_or_else(|_| "{}".to_string());
@@ -33,6 +42,22 @@ pub fn register_hooks(settings_path: &Path) -> Result<(), Box<dyn std::error::Er
     for event in events {
         if !root["hooks"][event].is_array() {
             root["hooks"][event] = serde_json::json!([]);
+        }
+
+        // Remove legacy ~/.claude/ringring entries
+        if let Some(arr) = root["hooks"][event].as_array_mut() {
+            arr.retain(|entry| {
+                !entry["hooks"]
+                    .as_array()
+                    .map(|hooks| {
+                        hooks.iter().any(|h| {
+                            h["command"]
+                                .as_str()
+                                .is_some_and(|c| c.contains(".claude/ringring"))
+                        })
+                    })
+                    .unwrap_or(false)
+            });
         }
 
         let already = root["hooks"][event]

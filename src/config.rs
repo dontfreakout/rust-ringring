@@ -37,7 +37,7 @@ impl<'a> ThemeResolver<'a> {
     /// 1. CLAUDE_SOUND_THEME env var
     /// 2. Workspace pin (config.json workspaces map)
     /// 3. Session cache (/tmp/.claude-theme-{session_id})
-    /// 4. Random from pool (if mode=random)
+    /// 4. Pick from pool (mode=random or mode=sequential)
     /// 5. config.json "theme" field
     /// 6. Legacy ~/.claude/sounds/theme file
     /// 7. Fallback "peon"
@@ -63,11 +63,26 @@ impl<'a> ThemeResolver<'a> {
             }
         }
 
-        // 3b. Random from pool
-        if self.config.mode.as_deref() == Some("random") && !self.config.random_pool.is_empty() {
-            use rand::Rng;
-            let idx = rand::rng().random_range(0..self.config.random_pool.len());
-            return self.config.random_pool[idx].clone();
+        // 3b. Pick from pool (random or sequential)
+        if !self.config.random_pool.is_empty() {
+            match self.config.mode.as_deref() {
+                Some("random") => {
+                    use rand::Rng;
+                    let idx = rand::rng().random_range(0..self.config.random_pool.len());
+                    return self.config.random_pool[idx].clone();
+                }
+                Some("sequential") => {
+                    let idx_file = self.sounds_dir.join(".sequence_index");
+                    let idx = fs::read_to_string(&idx_file)
+                        .ok()
+                        .and_then(|s| s.trim().parse::<usize>().ok())
+                        .unwrap_or(0)
+                        % self.config.random_pool.len();
+                    let _ = fs::write(&idx_file, (idx + 1).to_string());
+                    return self.config.random_pool[idx].clone();
+                }
+                _ => {}
+            }
         }
 
         // 4. Config theme
@@ -201,6 +216,28 @@ mod tests {
         let result = resolver.resolve();
         unsafe { std::env::remove_var("CLAUDE_SOUND_THEME") };
         assert_eq!(result, "icq");
+    }
+
+    #[test]
+    fn sequential_mode_cycles_through_pool() {
+        let dir = temp_sounds_dir();
+        let pool = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
+        let config = Config {
+            mode: Some("sequential".to_string()),
+            random_pool: pool.clone(),
+            ..Default::default()
+        };
+        let mut results = vec![];
+        for _ in 0..6 {
+            let resolver = ThemeResolver {
+                sounds_dir: dir.path(),
+                config: &config,
+                session_id: "",
+                cwd: "/tmp".to_string(),
+            };
+            results.push(resolver.resolve());
+        }
+        assert_eq!(results, vec!["alpha", "beta", "gamma", "alpha", "beta", "gamma"]);
     }
 
     #[test]

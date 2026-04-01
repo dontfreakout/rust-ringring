@@ -15,6 +15,11 @@ enum Cmd {
     List { debug: bool },
     Install,
     ThemeInstall { source: String, force: bool },
+    SessionTheme { session_id: String, theme: String },
+    SessionMute { session_id: String },
+    SessionUnmute { session_id: String },
+    Mode { mode: String },
+    Status { session_id: Option<String> },
 }
 
 fn parse_args(args: &[String]) -> Cmd {
@@ -45,6 +50,26 @@ fn parse_args(args: &[String]) -> Cmd {
                 }
                 _ => Cmd::Hook,
             }
+        }
+        Some("session") => {
+            let session_id = args.get(2).cloned().unwrap_or_default();
+            match args.get(3).map(|s| s.as_str()) {
+                Some("theme") => {
+                    let theme = args.get(4).cloned().unwrap_or_default();
+                    Cmd::SessionTheme { session_id, theme }
+                }
+                Some("mute") => Cmd::SessionMute { session_id },
+                Some("unmute") => Cmd::SessionUnmute { session_id },
+                _ => Cmd::Status { session_id: Some(session_id).filter(|s| !s.is_empty()) },
+            }
+        }
+        Some("mode") => {
+            let mode = args.get(2).cloned().unwrap_or_default();
+            Cmd::Mode { mode }
+        }
+        Some("status") => {
+            let session_id = args.get(2).cloned();
+            Cmd::Status { session_id }
         }
         _ => Cmd::Hook,
     }
@@ -77,11 +102,39 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Cmd::SessionTheme { session_id, theme } => {
+            if let Err(e) = run_session_theme(&session_id, &theme) {
+                eprintln!("ringring session theme: {e}");
+                std::process::exit(1);
+            }
+        }
+        Cmd::SessionMute { session_id } => {
+            if let Err(e) = run_session_mute(&session_id, true) {
+                eprintln!("ringring session mute: {e}");
+                std::process::exit(1);
+            }
+        }
+        Cmd::SessionUnmute { session_id } => {
+            if let Err(e) = run_session_mute(&session_id, false) {
+                eprintln!("ringring session unmute: {e}");
+                std::process::exit(1);
+            }
+        }
+        Cmd::Mode { mode } => {
+            if let Err(e) = run_set_mode(&mode) {
+                eprintln!("ringring mode: {e}");
+                std::process::exit(1);
+            }
+        }
+        Cmd::Status { session_id } => {
+            run_status(session_id.as_deref());
+        }
     }
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let input_str = std::io::read_to_string(std::io::stdin())?;
+
     let hook_input: event::HookInput = serde_json::from_str(&input_str)?;
 
     let sounds_dir = paths::data_dir();
@@ -94,7 +147,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         session_id: &hook_input.session_id,
         cwd: cwd.to_string_lossy().into_owned(),
     };
+    // Check mute flag
+    if !hook_input.session_id.is_empty() {
+        let mute_file = PathBuf::from(format!("/tmp/.claude-mute-{}", hook_input.session_id));
+        if mute_file.exists() {
+            return Ok(());
+        }
+    }
+
     let theme = resolver.resolve();
+    resolver.persist_session_theme(&theme);
     let theme_dir = config::theme_dir(&sounds_dir, &theme);
 
     let Some(manifest) = manifest::Manifest::load(&theme_dir) else {
@@ -124,7 +186,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         if let Some(ref pick) = pick {
             let sound_path = theme_dir.join("sounds").join(&pick.file);
-            let _ = audio::play_sound(&sound_path);
+            let _ = audio::play_sound(&sound_path, manifest.volume);
         }
     } else if !action.skip_notify {
         notify::send_notification(&action.title, &action.body);
@@ -203,7 +265,7 @@ fn run_test(theme: &str, category: Option<&str>) -> Result<(), Box<dyn std::erro
         for sound in &cat.sounds {
             println!("[{cat_name}] {}", sound.file);
             let sound_path = theme_dir.join("sounds").join(&sound.file);
-            let _ = audio::play_sound(&sound_path);
+            let _ = audio::play_sound_blocking(&sound_path, manifest.volume);
         }
     }
 
@@ -229,9 +291,13 @@ fn run_install() -> Result<(), Box<dyn std::error::Error>> {
     install::install_binary(&bin_dir)?;
     println!("installed binary to {}", bin_dir.join("ringring").display());
 
-    let settings_path = PathBuf::from(&home).join(".claude/settings.json");
+    let claude_dir = PathBuf::from(&home).join(".claude");
+    let settings_path = claude_dir.join("settings.json");
     install::register_hooks(&settings_path)?;
     println!("registered hooks in {}", settings_path.display());
+
+    install::install_command(&claude_dir)?;
+    println!("installed /ringring command to {}", claude_dir.join("commands/ringring.md").display());
 
     Ok(())
 }
@@ -338,10 +404,79 @@ mod tests {
     }
 }
 
+fn run_session_theme(session_id: &str, theme: &str) -> Result<(), Box<dyn std::error::Error>> {
+    if session_id.is_empty() {
+        return Err("usage: ringring session <session_id> theme <name>".into());
+    }
+    if theme.is_empty() {
+        return Err("usage: ringring session <session_id> theme <name>".into());
+    }
+    let sounds_dir = paths::data_dir();
+    let theme_dir = config::theme_dir(&sounds_dir, theme);
+    if !theme_dir.join("manifest.json").exists() {
+        return Err(format!("theme '{theme}' not found").into());
+    }
+    fs::write(format!("/tmp/.claude-theme-{session_id}"), theme)?;
+    println!("session {session_id}: theme set to '{theme}'");
+    Ok(())
+}
+
+fn run_session_mute(session_id: &str, mute: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if session_id.is_empty() {
+        return Err("usage: ringring session <session_id> mute|unmute".into());
+    }
+    let mute_file = format!("/tmp/.claude-mute-{session_id}");
+    if mute {
+        fs::write(&mute_file, "")?;
+        println!("session {session_id}: muted");
+    } else {
+        let _ = fs::remove_file(&mute_file);
+        println!("session {session_id}: unmuted");
+    }
+    Ok(())
+}
+
+fn run_set_mode(mode: &str) -> Result<(), Box<dyn std::error::Error>> {
+    match mode {
+        "random" | "sequential" => {}
+        "" => return Err("usage: ringring mode <random|sequential>".into()),
+        other => return Err(format!("unknown mode '{other}', expected: random, sequential").into()),
+    }
+    let sounds_dir = paths::data_dir();
+    let config_path = sounds_dir.join("config.json");
+    let content = fs::read_to_string(&config_path).unwrap_or_else(|_| "{}".to_string());
+    let mut root: serde_json::Value = serde_json::from_str(&content)?;
+    root["mode"] = serde_json::Value::String(mode.to_string());
+    fs::write(&config_path, serde_json::to_string_pretty(&root)?)?;
+    println!("mode set to '{mode}'");
+    Ok(())
+}
+
+fn run_status(session_id: Option<&str>) {
+    let sounds_dir = paths::data_dir();
+    let cfg = config::Config::load(&sounds_dir);
+
+    println!("data dir:  {}", sounds_dir.display());
+    println!("mode:      {}", cfg.mode.as_deref().unwrap_or("(default)"));
+    println!("theme:     {}", cfg.theme.as_deref().unwrap_or("(none)"));
+    if !cfg.random_pool.is_empty() {
+        println!("pool:      {}", cfg.random_pool.join(", "));
+    }
+
+    if let Some(sid) = session_id {
+        let theme_file = format!("/tmp/.claude-theme-{sid}");
+        let theme = fs::read_to_string(&theme_file).ok().map(|s| s.trim().to_string());
+        let muted = PathBuf::from(format!("/tmp/.claude-mute-{sid}")).exists();
+        println!("session:   {sid}");
+        println!("  theme:   {}", theme.as_deref().unwrap_or("(not set)"));
+        println!("  muted:   {muted}");
+    }
+}
+
 fn handle_session_start(
     hook_input: &event::HookInput,
-    resolver: &config::ThemeResolver,
-    theme: &str,
+    _resolver: &config::ThemeResolver,
+    _theme: &str,
     theme_dir: &std::path::Path,
     manifest: &manifest::Manifest,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -355,7 +490,6 @@ fn handle_session_start(
 
     match source_type {
         "startup" => {
-            resolver.persist_session_theme(theme);
             fs::write(&startup_flag, "startup")?;
 
             // Deferred startup sound: sleep, then play if flag still exists
@@ -364,13 +498,14 @@ fn handle_session_start(
 
             // Pick sound now, move only what we need into the thread
             let pick = manifest::pick_sound(manifest, "greeting");
+            let volume = manifest.volume;
 
             std::thread::spawn(move || {
                 std::thread::sleep(std::time::Duration::from_secs(1));
                 if flag.exists() {
                     if let Some(pick) = pick {
                         let sound_path = theme_dir.join("sounds").join(&pick.file);
-                        let _ = audio::play_sound(&sound_path);
+                        let _ = audio::play_sound(&sound_path, volume);
                     }
                     let _ = fs::remove_file(&flag);
                 }

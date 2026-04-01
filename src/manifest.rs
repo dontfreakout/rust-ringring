@@ -9,7 +9,14 @@ pub struct Manifest {
     pub name: String,
     #[allow(dead_code)]
     pub display_name: String,
+    /// Volume 0.0–1.0. Defaults to 1.0 if omitted.
+    #[serde(default = "default_volume")]
+    pub volume: f32,
     pub categories: HashMap<String, Category>,
+}
+
+fn default_volume() -> f32 {
+    1.0
 }
 
 #[derive(Debug, Deserialize)]

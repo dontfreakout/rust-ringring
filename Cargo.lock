@@ -1445,6 +1445,7 @@ dependencies = [
 name = "rust-ringring"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "notify-rust",
  "rand",
  "rodio",

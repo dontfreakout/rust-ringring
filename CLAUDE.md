@@ -34,5 +34,5 @@ Single binary, no library crate. Stdin JSON → event mapping → theme resoluti
 
 - **Silent failures everywhere.** A hook must never block Claude Code. All errors are swallowed; the binary always exits 0.
 - **Drop-in compatibility.** Same stdin JSON protocol, same config.json/manifest.json schemas as the bash original. Existing themes work unchanged.
-- **Runtime data lives in `~/.claude/sounds/`** — config.json, theme directories with manifest.json + sounds/ subdirs, optional icon at `~/.claude/clawd.png`.
+- **Runtime data** — prefers XDG (`$XDG_DATA_HOME/ringring` or `~/.local/share/ringring`), falls back to legacy `~/.claude/sounds/` if XDG path has no data. Config.json, theme directories with manifest.json + sounds/ subdirs, optional icon at `~/.claude/clawd.png`.
 - **Temp files** for session state: `/tmp/.claude-ringring-{session_id}` (startup flag), `/tmp/.claude-theme-{session_id}` (session theme cache).
