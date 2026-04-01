@@ -43,24 +43,24 @@ impl<'a> ThemeResolver<'a> {
     /// 7. Fallback "peon"
     pub fn resolve(&self) -> String {
         // 1. Env var
-        if let Ok(theme) = std::env::var("CLAUDE_SOUND_THEME") {
-            if !theme.is_empty() {
-                return theme;
-            }
+        if let Ok(theme) = std::env::var("CLAUDE_SOUND_THEME")
+            && !theme.is_empty()
+        {
+            return theme;
         }
 
         // 2. Workspace pin
-        if let Some(theme) = self.config.workspaces.get(&self.cwd) {
-            if !theme.is_empty() {
-                return theme.clone();
-            }
+        if let Some(theme) = self.config.workspaces.get(&self.cwd)
+            && !theme.is_empty()
+        {
+            return theme.clone();
         }
 
         // 3. Session cache
-        if !self.session_id.is_empty() {
-            if let Some(cached) = self.read_non_empty(&self.session_theme_file()) {
-                return cached;
-            }
+        if !self.session_id.is_empty()
+            && let Some(cached) = self.read_non_empty(&self.session_theme_file())
+        {
+            return cached;
         }
 
         // 3b. Pick from pool (random or sequential)
@@ -86,10 +86,10 @@ impl<'a> ThemeResolver<'a> {
         }
 
         // 4. Config theme
-        if let Some(theme) = &self.config.theme {
-            if !theme.is_empty() {
-                return theme.clone();
-            }
+        if let Some(theme) = &self.config.theme
+            && !theme.is_empty()
+        {
+            return theme.clone();
         }
 
         // 5. Legacy theme file

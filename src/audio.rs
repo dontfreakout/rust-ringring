@@ -30,7 +30,7 @@ fn play_blocking(path: &Path, volume: f32) -> Result<(), Box<dyn std::error::Err
     let source = Decoder::try_from(reader)?;
 
     let stream = rodio::OutputStreamBuilder::open_default_stream()?;
-    let sink = Sink::connect_new(&stream.mixer());
+    let sink = Sink::connect_new(stream.mixer());
     sink.set_volume(volume.clamp(0.0, 1.0));
     sink.append(source);
     sink.sleep_until_end();

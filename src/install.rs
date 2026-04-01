@@ -98,12 +98,12 @@ fn zip_theme_name(archive: &mut zip::ZipArchive<std::fs::File>) -> Result<String
     let mut top_dirs: std::collections::HashSet<String> = std::collections::HashSet::new();
     for i in 0..archive.len() {
         let entry = archive.by_index(i)?;
-        if let Some(rel) = entry.enclosed_name() {
-            if let Some(first) = rel.components().next() {
-                let name = first.as_os_str().to_string_lossy().into_owned();
-                if !name.is_empty() {
-                    top_dirs.insert(name);
-                }
+        if let Some(rel) = entry.enclosed_name()
+            && let Some(first) = rel.components().next()
+        {
+            let name = first.as_os_str().to_string_lossy().into_owned();
+            if !name.is_empty() {
+                top_dirs.insert(name);
             }
         }
     }
