@@ -1,5 +1,6 @@
 ---
 allowed-tools: Bash(ringring *)
+argument-hint: [status | theme <name> | mute | unmute | mode <random|sequential> | list | test <theme> [--category <cat>]]
 ---
 
 You control the `ringring` sound notification system. The user wants to manage sounds for their Claude Code session.
